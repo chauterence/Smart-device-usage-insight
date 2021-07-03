@@ -1,0 +1,383 @@
+---
+title: "Smart device usage insight"
+author: "Terence Chau"
+date: '2021-07-02'
+output:
+  pdf_document: default
+  html_document: default
+---
+
+
+
+\ <br>
+\ <br>
+
+# Introduction
+The purpose of this report is to help the small company Bellabeat, a high-tech manufacturer of health-focused products for women, to become a larger player in the global smart device market. The management of the company believes that analyzing smart device fitness data could help unlock new growth opportunities for the company.
+
+\ <br>
+
+***
+
+# Data Overview
+In this report, the public available dataset [FitBit Fitness Tracker Data](https://www.kaggle.com/arashnic/fitbit) of 33 fitbit users with data between 2016-04-12 to 2016-05-12 have been used for the analysis.
+
+Since data in the dataset is directly generated from fitbit smart devices, the data should be reliable. However, there are serveral limitation from the data:
+
+* it only contains data of 33 users, which makes it a very small dataset for analysis  
+
+* no user information including sex information is available, where Bellabeat focus on women
+
+* the data is from 2016 which is 5 years old, users behaviour may have changed
+
+* no activity type is available, which makes it difficult to distinguish whether users are working out or having regular everyday life
+
+* no device wearing time available, we assume all users wear their device all day 
+
+\ <br>
+
+Given the above limitation, the insights from this report will have limited usefulness for Bellabeat which is target at women.
+
+\ <br>
+
+***
+
+# Data cleaning and processing
+
+```{r}
+library(tidyverse)
+library(lubridate)
+library(here)
+library(skimr)
+library(janitor)
+library(knitr)
+```
+
+\ <br>
+
+6 csv files were imported into R for analysis.
+
+```{r}
+daily_activity <- read_csv("dailyActivity_merged.csv")
+hourly_calories <- read_csv("hourlyCalories_merged.csv")
+hourly_intensities <- read_csv("hourlyIntensities_merged.csv")
+hourly_steps <- read_csv("hourlySteps_merged.csv")
+sleep_day <- read_csv("sleepDay_merged.csv")
+weight_log_info <- read_csv("weightLogInfo_merged.csv")
+```
+
+\ <br>
+
+Let's take a look at the imported data frame.
+
+```{r}
+glimpse(daily_activity)
+glimpse(hourly_calories)
+glimpse(hourly_intensities)
+glimpse(hourly_steps)
+glimpse(sleep_day)
+glimpse(weight_log_info)
+```
+
+\ <br>
+
+Seems like there are little issues on data format on ID and date, it needed to be fixed.
+
+```{r}
+# fix data format for date and ID of daily_activity
+daily_activity$ActivityDate <- as.Date(daily_activity$ActivityDate, "%m/%d/%y")
+daily_activity$Id <- as.character(daily_activity$Id)
+
+# fix data format for date and ID of hourly_calories
+hourly_calories$ActivityHour <- mdy_hms(hourly_calories$ActivityHour)
+hourly_calories$Id <- as.character(hourly_calories$Id)
+
+# fix data format for date and ID of hourly_intensities
+hourly_intensities$ActivityHour <- mdy_hms(hourly_intensities$ActivityHour)
+hourly_intensities$Id <- as.character(hourly_intensities$Id)
+
+# fix data format for date and ID of hourly_steps
+hourly_steps$ActivityHour <- mdy_hms(hourly_steps$ActivityHour)
+hourly_steps$Id <- as.character(hourly_steps$Id)
+
+# fix data format for date and ID of sleep_day
+sleep_day$SleepDay <- mdy_hms(sleep_day$SleepDay)
+sleep_day$Id <- as.character(sleep_day$Id)
+
+# fix data format for date and ID of weight_log_info
+weight_log_info$Date <- mdy_hms(weight_log_info$Date)
+weight_log_info$Id <- as.character(weight_log_info$Id)
+```
+
+
+\ <br>
+
+Now check the number of users in each data frame.
+
+```{r}
+# check number of sample for daily_activity
+n_distinct(daily_activity$Id)
+
+# check number of sample for hourly_calories
+n_distinct(hourly_calories$Id)
+
+# check number of sample for hourly_intensities
+n_distinct(hourly_intensities$Id)
+
+# check number of sample for hourly_steps
+n_distinct(hourly_steps$Id)
+
+# check number of sample for sleep_day
+n_distinct(sleep_day$Id)
+
+# check number of sample for weight_log_info
+n_distinct(weight_log_info$Id)
+```
+
+Here we found that although 33 users in the dataset, only 24 recorded their sleep and 8 recorded their weight information. The number of sample for sleep and weight record are too small for generating a useful insights, but nevertheless we will still take a look on them.
+
+\ <br>
+
+As hourly_calories, hourly_intensities and hourly_steps have a very similar structure and a same number of observation, combine the 3 data frame into 1 for easier working.
+
+```{r}
+hourly <- merge(merge(hourly_calories, hourly_intensities, all=TRUE), hourly_steps, all=TRUE)
+```
+
+\ <br>
+
+Separate the date and time in the hourly data frame.
+
+```{r}
+# separate time and date into their own column
+hourly$Date <- format(hourly$ActivityHour, format = "%Y-%m-%d")
+hourly$Time <- format(hourly$ActivityHour, format = "%H:%M:%S")
+```
+
+```{r}
+# convert into date format
+hourly$Date <- as_date(hourly$Date, "%Y-%m-%d", tz = NULL)
+```
+
+```{r}
+# convert into time format
+library(hms)
+hourly$Time <- as_hms(hourly$Time)
+```
+
+
+\ <br>
+
+Let's check if the data frame are completed with data.
+
+```{r}
+skim_without_charts(daily_activity)
+skim_without_charts(hourly)
+skim_without_charts(sleep_day)
+skim_without_charts(weight_log_info)
+```
+
+\ <br>
+
+Except weight_log_info data frame with missing data in the column FAT, all other columns in other data frames are filled with data.
+
+\ <br>
+
+***
+
+# Data analyze and insights
+First let's focus on the daily_activity data frame.
+
+Check how the values within daily_activity are correlated to each other.
+
+```{r}
+daily_corr <- cor(daily_activity %>% select(-Id, -ActivityDate)) %>%  round(digits = 2)
+```
+
+\ <br>
+
+Visualize the correlation for easier understanding.
+```{r, eval=FALSE}
+library(corrplot)
+png(height=800, width=800, pointsize=15, file="corrplot.png")
+corrplot(cor(daily_corr), method = "number", type = "lower")
+```
+
+![](D:\Projects\Courses\Google Data Analytics Professional Certificate\Course 8 - Google Data Analytics Capstone - Complete a Case Study\Fitabase Data 4.12.16-5.12.16\corrplot.png)
+
+Some insights from the correlation heatmap:
+
+* Total steps and total distance are directly related to each other
+
+* The intensities of active minutes are highly related to the intensities of active distance
+
+* Sedentary Minutes are negative correlated to total steps and total distance
+
+* Calories is positively correlated to total steps and total distance
+
+* Surprisingly, lightly active distance and lightly active minutes have a higher correlation to total steps and total steps then moderately active distance and fairly active minutes, perhaps those users who walk a lot covers more mileage but being categorize into lightly active distance / minutes, but the exact reason is not known, and here is the data limitation of no activity type of users available.
+
+\ <br>
+
+Now let's check the hourly data frame and see how user's activity spread across a day by grouping their total activity intensities into time.
+
+```{r}
+hourly %>% group_by(Time) %>% summarise(sum_intensity = sum(TotalIntensity)) %>%
+  ggplot(aes(x=Time, y=sum_intensity)) + geom_col() +
+  labs(title = "Total intensity for all users across time")
+```
+
+From the graph we find that users tend to be active on day time and decrease activity at night, probably going to sleep at night.
+
+The highest intensity by time is at 5-7pm, probably users tends to workout after work.
+
+\ <br>
+
+Let's check the average intensity by users in hour
+```{r}
+hourly %>% group_by(Id, Time) %>% summarise(mean_intensity = mean(TotalIntensity)) %>% 
+  ggplot(aes(x=Time, y=mean_intensity)) + geom_point() + geom_smooth() +
+  labs(title = "Average intensity for each user across time")
+```
+
+Here we can see although the overall trends agree with the graph above, intensities during active hour varies greatly among users, likely to be the different workout intensity among users.
+
+\ <br>
+
+Now let's focus on the sleeping data.
+As discovered above, only 24 users record their sleep. Let's check how often they record their sleep.
+
+```{r}
+# habit to record sleep
+sleep_record_habit <- sleep_day %>% count(Id)
+
+# Visualize the sleep recording habit for different users
+ggplot(data = sleep_record_habit, aes(x = Id, y = n)) + geom_col() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  labs(title = "User's habit for sleep recording") + ylab("num_of_record")
+```
+
+Here we found that most users didn't record all their sleep within a month, many just record a few.
+
+\ <br>
+
+Let's check the average sleep time of user, and add the asleep percentage and the number of sleep record from above.
+
+```{r}
+# average sleep time
+sleep_anaylyze <- sleep_day %>% group_by(Id) %>% summarise(mean_asleep = mean(TotalMinutesAsleep), mean_bed = mean(TotalTimeInBed))
+
+# asleep percentage
+sleep_anaylyze$asleep_percentage <- (sleep_anaylyze$mean_asleep / sleep_anaylyze$mean_bed) * 100
+
+# add the number of sleep record for comparison
+sleep_anaylyze$num_of_record <- sleep_record_habit$n
+
+head(sleep_anaylyze)
+```
+
+\ <br>
+
+Let's convert the unit from minutes to hour and filter out those with too little record and only keep those who record at least 2/3 of their sleep in a month, assuming those with at least 21 record meet the requirement.
+
+```{r}
+# filter for only users with 21 or more sleep records
+sleep_analyze_trim <- sleep_anaylyze %>% filter(num_of_record >= 21)
+
+# convert into hour
+sleep_analyze_trim$mean_asleep_hour <- sleep_analyze_trim$mean_asleep / 60
+sleep_analyze_trim$mean_bed_hour <- sleep_analyze_trim$mean_bed / 60
+
+# shows only essential columns
+sleep_analyze_output <- sleep_analyze_trim %>% select(Id, mean_asleep_hour, mean_bed_hour, asleep_percentage)
+
+kable(sleep_analyze_output)
+
+n_distinct(sleep_analyze_output$Id)
+```
+
+Only 12 users record over 21 sleeping records.
+
+\ <br>
+
+Let's see how is the sleeping quality of this 12 users.
+
+```{r}
+ggplot(data = sleep_analyze_output, aes(x = Id, y = asleep_percentage)) + geom_col() +
+  labs(title = "Asleep percentage") + theme(axis.text.x = element_text(angle = 90)) +
+  scale_y_continuous(breaks = seq(0,100,10))
+```
+
+Most user fall asleep for over 90% of time when they are on the bed.
+
+\ <br>
+
+Also check the average time on bed and average time of asleep.
+
+```{r}
+# average time on bed
+mean(sleep_analyze_output$mean_bed_hour)
+
+# average time asleep
+mean(sleep_analyze_output$mean_asleep_hour)
+```
+
+According to the Centers for Disease Control and Prevention, sleeping time for adult should have above 7 hours. From the data, the average on bed time is 7.71 hours, and the average asleep time is 7.06 hours. Yet with only 12 valid samples, the number of samples are too little to draw meaningful conclusion.
+
+\ <br>
+
+Lastly let's check the weight log although there are only 8 users recorded their weight.
+
+The latest record of BMI for each users were used.
+
+```{r}
+# latest BMI for individuals
+individuals_BMI <- weight_log_info %>% group_by(Id) %>% slice_tail(n=1) %>% select(Id, BMI)
+```
+
+\ <br>
+
+Let's also see the how healthy among this small sample of users
+```{r}
+# number of sample for BMI over 25
+nrow(filter(individuals_BMI, BMI > 25))
+```
+
+With BMI higher than 25 classified as overweight, 5 out of 8 users are overweight!
+
+\ <br>
+
+***
+
+# Summary insight
+As sleep and weight data contains too few samples, they are not able to provide conclusive insights.
+
+From the above insights, 
+
+* Smart device users activity is higher at day time and lower at early morning and late night.
+
+* Smart device users probably prefer to workout after work, between 5-7pm.
+
+* Smart device users differs a lot in terms of activity intensity, and those work hard and have high intensity during workout is minority, which suggest that the majority of smart device users are casual users.
+
+* Most smart device users didn't record all their sleep with a month, many just record sleep occasionally.
+
+* Only small proportion of smart device users record their weight information.
+
+\ <br>
+
+***
+# Recommendation
+1. Smart device users are not fully utilize the function of their device, we could encourage users to record their sleep and weight to monitor and improve their health by:
+
+    + Develop new device which is comforatble to wear during sleep
+    
+    + Adopt push notification to remind users to record their weight information
+    
+    + Educate existing and potential users of the benifit of knowing their own body statistic including activity intensity, sleep and weight information.
+
+2. Develop a greater range of device so that not only casual user, but enthusiastic or even professional users will find our smart device are useful and helpful for them.
+
+\ <br>
+\ <br>
+\ <br>
